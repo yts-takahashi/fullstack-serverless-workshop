@@ -1,0 +1,60 @@
+{
+  "name": "AWS Serverless Workshop",
+
+  // 1. ベースとなるシンプルなイメージを選択
+  "image": "mcr.microsoft.com/devcontainers/base:bullseye",
+
+  // 2. 必要な機能をモジュールとして追加 (Dev Container Features)
+  "features": {
+    // AWS CLI (SAM CLIに必要)
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+
+    // Node.js (React開発に必要)
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "18"
+    },
+
+    // Python (SAM CLIの実行と、Lambdaのランタイムとして)
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11"
+    },
+
+    // Docker-in-Docker (sam build --use-container に必要)
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": true
+    }
+  },
+
+  // 3. 開発に必要なポートをフォワード
+  "forwardPorts": [
+    3000, // sam local start-api 用 
+    3001  // React 用 (3000と被らないように)
+  ],
+
+  // 4. コンテナ作成後に実行するコマンド (SAM CLIのインストール)
+  "postCreateCommand": "pip install --upgrade pip && pip install aws-sam-cli",
+
+  // 5. VS Codeエディタ自体の設定
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // AWS開発用
+        "amazonwebservices.aws-toolkit-vscode",
+        // フロントエンド開発用
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        // Python開発用
+        "ms-python.python",
+        // SAMのtemplate.yaml編集用
+        "redhat.vscode-yaml"
+      ]
+    }
+  },
+  "mounts": [
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached"
+  ],
+
+  // コンテナ内で作業するユーザーを 'vscode' に指定 (rootを避ける)
+  "remoteUser": "vscode"
+}
