@@ -1,4 +1,3 @@
-# .github/workflows/deploy.yml
 name: Deploy Fullstack Serverless App
 
 on:
@@ -20,12 +19,36 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: arn:aws:iam::413597942163:role/GitHubActionRoleTest
-          aws-region: ap-northeast-1
+          aws-region: ap-northeast-1 # メインのデプロイリージョン
 
       - name: Set up Python 3.9
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+
+      - name: Deploy WAF Stack and get ARN
+        id: deploy_waf
+        run: |
+          echo "Deploying WAF stack to us-east-1..."
+          aws cloudformation deploy \
+            --template-file backend/waf-stack.yaml \
+            --stack-name waf-todo-app-prod \
+            --region us-east-1 \
+            --no-fail-on-empty-changeset
+
+          echo "Fetching WAF ACL ARN..."
+          WAF_ARN=$(aws cloudformation describe-stacks \
+            --stack-name waf-todo-app-prod \
+            --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='WebACLArn'].OutputValue" \
+            --output text)
+          
+          if [ -z "${WAF_ARN}" ]; then
+            echo "::error::Could not retrieve WAF ARN from waf-todo-app-prod stack outputs."
+            exit 1
+          fi
+
+          echo "WAF_ARN=${WAF_ARN}" >> $GITHUB_OUTPUT
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -38,7 +61,10 @@ jobs:
           set -eo pipefail
           cd backend
           echo "Starting SAM deployment..."
-          deploy_output=$(sam deploy --no-confirm-changeset --stack-name todo-app-prod 2>&1) || true
+          deploy_output=$(sam deploy \
+            --no-confirm-changeset \
+            --stack-name todo-app-prod \
+            --parameter-overrides WebACLArn=${{ steps.deploy_waf.outputs.WAF_ARN }} 2>&1) || true
           echo "--- SAM Deploy Output ---"
           echo "$deploy_output"
           echo "-----------------------"
@@ -61,7 +87,6 @@ jobs:
           fi
           echo "S3_BUCKET_NAME=${S3_BUCKET_NAME}" >> $GITHUB_OUTPUT
           echo "CLOUDFRONT_DISTRIBUTION_ID=${CLOUDFRONT_DISTRIBUTION_ID}" >> $GITHUB_OUTPUT
-
       - name: Build Frontend
         run: |
           cd frontend
