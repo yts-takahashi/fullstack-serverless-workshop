@@ -9,7 +9,7 @@ Globals:
     Runtime: python3.9
     Environment:
       Variables:
-        TODOS_TABLE: 'Todos'
+        TODOS_TABLE: !Ref TodosTable
   Api:
     Cors:
       AllowMethods: "'*'"
@@ -26,7 +26,6 @@ Resources:
   TodosTable:
     Type: AWS::Serverless::SimpleTable
     Properties:
-      TableName: Todos
       PrimaryKey:
         Name: id
         Type: String
@@ -103,7 +102,61 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref TodosTable }
       Events:
         ApiEvent: { Type: Api, Properties: { Path: '/todos/{id}', Method: delete } }
+  FrontendS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+        
+  FrontendS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendS3Bucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${FrontendS3Bucket}/*"
+            
+  FrontendCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendS3Bucket.DomainName
+            S3OriginConfig: {}
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          AllowedMethods: ["GET", "HEAD", "OPTIONS"]
+          CachedMethods: ["GET", "HEAD", "OPTIONS"]
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
 Outputs:
+  S3BucketName:
+    Description: "Name of the S3 bucket for the frontend assets"
+    Value: !Ref FrontendS3Bucket
+  CloudFrontDistributionId:
+    Description: "ID of the CloudFront distribution"
+    Value: !Ref FrontendCloudFrontDistribution
+  CloudFrontDistributionDomainName:
+    Description: "Domain name of the CloudFront distribution"
+    Value: !GetAtt FrontendCloudFrontDistribution.DomainName
   Region:
     Description: "AWS Region"
     Value: !Ref AWS::Region

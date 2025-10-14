@@ -1,0 +1,78 @@
+# .github/workflows/deploy.yml
+name: Deploy Fullstack Serverless App
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::413597942163:role/GitHubActionRoleTest
+          aws-region: ap-northeast-1
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Deploy Backend and Hosting Infrastructure
+        id: deploy_backend
+        run: |
+          set -eo pipefail
+          cd backend
+          echo "Starting SAM deployment..."
+          deploy_output=$(sam deploy --no-confirm-changeset --stack-name todo-app-prod 2>&1) || true
+          echo "--- SAM Deploy Output ---"
+          echo "$deploy_output"
+          echo "-----------------------"
+          if [[ "$deploy_output" == *"Error:"* ]] && [[ "$deploy_output" != *"No changes to deploy"* ]]; then
+            echo "::error::SAM deployment failed with an unexpected error."
+            exit 1
+          fi
+          echo "Backend deployment step completed successfully (or no changes were needed)."
+          echo "Fetching stack outputs..."
+          aws cloudformation describe-stacks --stack-name todo-app-prod \
+            --query "Stacks[0].Outputs" > outputs.json
+          echo "--- Retrieved CloudFormation outputs (outputs.json) ---"
+          cat outputs.json
+          echo "--------------------------------------------------------"
+          S3_BUCKET_NAME=$(jq -r '.[] | select(.OutputKey=="S3BucketName") | .OutputValue' outputs.json)
+          CLOUDFRONT_DISTRIBUTION_ID=$(jq -r '.[] | select(.OutputKey=="CloudFrontDistributionId") | .OutputValue' outputs.json)
+          if [ -z "${S3_BUCKET_NAME}" ] || [ "${S3_BUCKET_NAME}" == "null" ]; then
+            echo "::error::Could not find S3BucketName in stack outputs. The deployed stack may be outdated. Please see solution instructions."
+            exit 1
+          fi
+          echo "S3_BUCKET_NAME=${S3_BUCKET_NAME}" >> $GITHUB_OUTPUT
+          echo "CLOUDFRONT_DISTRIBUTION_ID=${CLOUDFRONT_DISTRIBUTION_ID}" >> $GITHUB_OUTPUT
+
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm install
+          npm run build
+
+      - name: Deploy Frontend to S3
+        run: |
+          aws s3 sync ./frontend/build s3://${{ steps.deploy_backend.outputs.S3_BUCKET_NAME }} --delete
+
+      - name: Invalidate CloudFront Cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.deploy_backend.outputs.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
