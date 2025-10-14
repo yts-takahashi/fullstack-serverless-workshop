@@ -1,41 +1,115 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: >
-  backend
+Description: Todo Application Backend
 
-  Sample SAM Template for backend
-
-# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
-    Timeout: 3
+    Timeout: 5
+    MemorySize: 128
+    Runtime: python3.9
+    Environment:
+      Variables:
+        TODOS_TABLE: 'Todos'
+  Api:
+    Cors:
+      AllowMethods: "'*'"
+      AllowHeaders: "'*'"
+      AllowOrigin: "'http://localhost:3001'"
+    Auth:
+      DefaultAuthorizer: CognitoUserPoolAuthorizer
+      Authorizers:
+        CognitoUserPoolAuthorizer:
+          UserPoolArn: !GetAtt CognitoUserPool.Arn
 
 Resources:
-  HelloWorldFunction:
-    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+  # DynamoDB Table
+  TodosTable:
+    Type: AWS::Serverless::SimpleTable
     Properties:
-      CodeUri: hello_world/
-      Handler: app.lambda_handler
-      Runtime: python3.12
-      Architectures:
-        - x86_64
+      TableName: Todos
+      PrimaryKey:
+        Name: id
+        Type: String
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: TodoAppUserPool
+      UsernameAttributes: ['email']
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      ClientName: "TodoAppClient"
+      GenerateSecret: false  # Lambda Functions & API Gateway Endpoints
+  CreateTodoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: todos/
+      Handler: create.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref TodosTable }
       Events:
-        HelloWorld:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
-          Properties:
-            Path: /hello
-            Method: get
+        ApiEvent: { Type: Api, Properties: { Path: /todos, Method: post } }
 
+  ListTodosFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: todos/
+      Handler: list.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref TodosTable }
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /todos
+            Method: get
+            Auth:
+              Authorizer: NONE
+  GetTodoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: todos/
+      Handler: get.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref TodosTable }
+      Events:
+        ApiEvent: { Type: Api, Properties: { Path: '/todos/{id}', Method: get } }
+
+  UpdateTodoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: todos/
+      Handler: update.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref TodosTable }
+      Events:
+        ApiEvent: { Type: Api, Properties: { Path: '/todos/{id}', Method: put } }
+
+  DeleteTodoFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: todos/
+      Handler: delete.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref TodosTable }
+      Events:
+        ApiEvent: { Type: Api, Properties: { Path: '/todos/{id}', Method: delete } }
 Outputs:
-  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
-  # Find out more about other implicit resources you can reference within SAM
-  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
-  HelloWorldApi:
-    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/Prod/hello/"
-  HelloWorldFunction:
-    Description: "Hello World Lambda Function ARN"
-    Value: !GetAtt HelloWorldFunction.Arn
-  HelloWorldFunctionIamRole:
-    Description: "Implicit IAM Role created for Hello World function"
-    Value: !GetAtt HelloWorldFunctionRole.Arn
+  Region:
+    Description: "AWS Region"
+    Value: !Ref AWS::Region
+  CognitoUserPoolId:
+    Description: "The ID of the Cognito User Pool"
+    Value: !Ref CognitoUserPool
+  CognitoUserPoolClientId:
+    Description: "The ID of the Cognito User Pool Client"
+    Value: !Ref CognitoUserPoolClient

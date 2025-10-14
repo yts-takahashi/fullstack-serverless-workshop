@@ -32,10 +32,15 @@
     3001  // React 用 (3000と被らないように)
   ],
 
-  // 4. コンテナ作成後に実行するコマンド (SAM CLIのインストール)
+  // 4. コンテナ実行時に適用される引数を追加
+  "runArgs": [
+    "--dns=8.8.8.8"
+  ],
+
+  // 5. コンテナ作成後に実行するコマンド (SAM CLIのインストール)
   "postCreateCommand": "pip install --upgrade pip && pip install aws-sam-cli",
 
-  // 5. VS Codeエディタ自体の設定
+  // 6. VS Codeエディタ自体の設定
   "customizations": {
     "vscode": {
       "extensions": [
